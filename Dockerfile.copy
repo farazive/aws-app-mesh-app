@@ -1,0 +1,109 @@
+##### baseOases Image #####
+# Get package installation done so that SSH key will not be saved in eventual image
+
+FROM php:7.4.4-cli as baseApp
+
+LABEL stage=s5-base
+
+# 1. Create the SSH directory.
+# 2. Populate the private key file.
+# 3. Set the required permissions.
+# 4. Add github to our list of known hosts for ssh.
+ENV webFolder=/var/www
+ENV rootFolder="s5-docker"
+WORKDIR ${webFolder}/${rootFolder}
+RUN \
+    pwd && \
+    apt-get update && \
+    apt-get install -y git zlib1g-dev libzip-dev wget && \
+    docker-php-ext-install -j$(nproc) zip && \
+    wget https://github.com/mikefarah/yq/releases/download/2.4.0/yq_linux_386 -O yq && chmod +x yq && mv yq /usr/local/sbin/. && \
+    # Install composer and plugin of prestissimo for parallel package installation
+    curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+#    && \
+#    composer self-update && composer global require hirak/prestissimo
+
+# Place private repositories to the root folder
+COPY . ./
+
+WORKDIR ${webFolder}/${rootFolder}/apps/s5
+RUN \
+    pwd && \
+    ls && \
+    composer install -n
+    # update monolog configuration with yq to have php output log to stderr
+#    yq write --inplace config/packages/monolog.yaml monolog.handlers.main.type error_log && \
+#    yq delete --inplace config/packages/monolog.yaml monolog.handlers.main.path && \
+#    yq write --inplace config/packages/monolog.yaml monolog.handlers.error.type error_log && \
+#    yq delete --inplace config/packages/monolog.yaml monolog.handlers.error.path && \
+#    yq write --inplace config/packages/monolog.yaml monolog.handlers.main_json.type error_log && \
+#    yq write --inplace config/packages/monolog.yaml monolog.handlers.main_json.level info && \
+#    yq delete --inplace config/packages/monolog.yaml monolog.handlers.main_json.path
+
+##### Build the eventual image #####
+FROM php:7.4.4-fpm-alpine3.11 as prodOases
+
+# Copy user api code with vendor folder
+ENV webFolder="/var/www/"
+ENV rootFolder="s5-docker"
+ENV symfonyFolder="apps/s5"
+ENV webServerUser=www-data
+ENV webServerGroup=www-data
+
+# Set work directory
+WORKDIR ${webFolder}/${rootFolder}
+
+COPY . ./
+COPY --from=baseApp ${webFolder}/${rootFolder}/config/ ./config/
+COPY --from=baseApp ${webFolder}/${rootFolder}/vendor/ ./vendor/
+COPY --from=baseApp ${webFolder}/${rootFolder}/var/ ./var/
+
+# Install required php modules
+RUN \
+    apk add libzip-dev shadow && \
+    docker-php-ext-configure zip && \
+    docker-php-ext-install -j$(nproc) zip && \
+    docker-php-ext-install -j$(nproc) pdo_mysql
+
+ENV wwwDataUID=1000
+ENV wwwDataGID=1000
+ENV binPath="/usr/local/bin/"
+
+# Clean up nonessential files and dump asset
+RUN \
+    id && \
+    pwd && \
+    ls && \
+#    sed -i 's/\r//g' .env Dockerfiles/web_app/${entrypointScript} && \
+#    mv Dockerfiles/web_app/${entrypointScript} . && \
+#    rm -rf infra bitbucket-pipelines.yml dockerized-bitbucket-pipelines.yml Dockerfiles && \
+    rm -rf .githooks docs nginx && \
+    php apps/s5/bin/console asset:install && \
+    find var/cache/ -type f -name '*' -exec rm -r {} \; && \
+    usermod -u ${wwwDataUID} ${webServerUser} && \
+    groupmod -g ${wwwDataGID} ${webServerGroup} && \
+    chown -R ${webServerUser}:${webServerGroup} ${webFolder}/${rootFolder}/public && \
+    chown -R ${webServerUser}:${webServerGroup} ${webFolder}/${rootFolder}/var && \
+    chmod -R o=rw ${webFolder}/${rootFolder}/var
+
+# Install AWS CLI and Nginx
+#RUN \
+#    apk add python && \
+#    curl "https://s3.amazonaws.com/aws-cli/awscli-bundle.zip" -o "awscli-bundle.zip" && \
+#    unzip awscli-bundle.zip && \
+#    ./awscli-bundle/install -i /usr/local/aws -b /usr/local/bin/aws && \
+#    rm -rf awscli-bundle.zip awscli-bundle && \
+#    aws --version && \
+#    apk add nginx
+
+# Install Nginx configuration file
+#COPY ./infra/Nginx/conf/nginx.conf /etc/nginx/nginx.conf
+#COPY ./infra/Nginx/conf/nginx.vh.default.conf /etc/nginx/conf.d/default.conf
+
+CMD ["php-fpm"]
+
+EXPOSE 9000
+
+#ENTRYPOINT [ "sh", "ECSTaskStart.sh" ]
+
+#FROM baseOases as testOases
