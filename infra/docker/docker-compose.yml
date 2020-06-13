@@ -1,0 +1,20 @@
+version: '3.7'
+
+services:
+  app:
+    build:
+      context: ../../.
+      dockerfile: ./infra/docker/Dockerfile
+      target: app-nginx
+#      args:
+#        - SSH_PRIVATE_KEY=${SSH_PRIVATE_KEY}
+    env_file:
+      - .env
+    image: app-nginx:latest
+    # command: "sleep 500"
+    tty: true
+    container_name: web
+    privileged: true
+    user: root
+    ports:
+      - "8000:8000"
