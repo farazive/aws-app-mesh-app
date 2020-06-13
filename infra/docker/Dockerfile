@@ -42,6 +42,15 @@ ENV rootFolder=s5-docker
 ENV webServerUser=www-data
 ENV webServerGroup=www-data
 
+COPY ./infra/php/conf.d/opcache.ini /usr/local/etc/php/conf.d/opcache.ini
+
+# opcache ENV
+ENV PHP_OPCACHE_VALIDATE_TIMESTAMPS="0" \
+    # run "find . -type f -print | grep php | wc -l" in root to find out how many php files we have
+    PHP_OPCACHE_MAX_ACCELERATED_FILES="1500" \
+    PHP_OPCACHE_MEMORY_CONSUMPTION="192" \
+    PHP_OPCACHE_MAX_WASTED_PERCENTAGE="10"
+
 # Set work directory
 WORKDIR ${webFolder}/${rootFolder}
 COPY . ./
